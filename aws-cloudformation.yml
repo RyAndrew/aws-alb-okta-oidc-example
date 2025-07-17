@@ -2,16 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: "Enhanced ALB + Okta OIDC Authentication Demo - Complete example with multiple endpoints, security groups, and comprehensive OIDC features"
 
 Parameters:
-  HostedZoneName:
-    Type: String
-    Description: "Route53 Hosted Zone Name (e.g., aws.example.com.)"
-    Default: "aws.mydomain.com." 
-
-  RecordName:
-    Type: String
-    Description: "Domain for the ALB (e.g., alb.aws.example.com.)"
-    Default: "alb.aws.mydomain.com" 
-
   OktaClientId:
     Type: String
     Description: "OIDC Client ID"
@@ -23,25 +13,15 @@ Parameters:
     Description: "OIDC Client Secret"
     Default: "hh4DNQUebSQOkmyPTaZpNDHBitM3J5qFG2Aao-CrmqI7XIVD4EHhmBkNMlgjODPt"
 
-  OidcIssuer:
+  OidcOktaDomain:
     Type: String
-    Description: "OIDC Issuer URL"
-    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697"
+    Description: "Your Okta domain. e.g. dev-23503294.okta.com or custom domain."
+    Default: "auth.mydomain.com"
 
-  OidcAuthorizationEndpoint:
+  OidcOktaAuthServerId:
     Type: String
-    Description: "OIDC Authorization Endpoint URL"
-    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697/v1/authorize"
-
-  OidcTokenEndpoint:
-    Type: String
-    Description: "OIDC Token Endpoint URL"
-    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697/v1/token"
-
-  OidcUserInfoEndpoint:
-    Type: String
-    Description: "OIDC UserInfo Endpoint URL"
-    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697/v1/userinfo"
+    Description: "ID Value for Okta Auth Server. If you are using a custom authorization server use the identifier e.g. 'ausakx45dmHwzI9D3697', otherwise use 'default'"
+    Default: "default"
 
   OidcScopes:
     Type: String
@@ -50,9 +30,24 @@ Parameters:
 
   OidcExtendedScopes:
     Type: String
-    Description: "OIDC Scopes"
+    Description: "OIDC Extended Scopes"
     Default: "openid profile email"
 
+  AlbSessionCookieName:
+    Type: String
+    Description: "Name of the cookie used to store the oidc session"
+    Default: "AWSELBAuthSessionCookie"
+
+  HostedZoneName:
+    Type: String
+    Description: "Route53 Hosted Zone Name (e.g., aws.example.com.)"
+    Default: "aws.mydomain.com." 
+
+  RecordName:
+    Type: String
+    Description: "Domain for the ALB (e.g., alb.aws.example.com.)"
+    Default: "alb.aws.mydomain.com" 
+    
   HostedZoneId:
     Type: String
     Description: "The ID of the Route53 hosted zone for your subdomain (e.g., Z03465402AW3N8S6IRRL3)"
@@ -741,7 +736,7 @@ Resources:
                     <div class="scope-notice">
                       <h3>&#x26A0;&#xFE0F; Limited Profile Information</h3>
                       <p>This endpoint requests extended scopes (profile, email) but they may not be configured in your Okta application.</p>
-                      <p>To see full profile information, ensure your Okta app includes these scopes.</p>
+                      <p>To see full profile information, please logout and click the profile link to login with extra scopes requested.</p>
                     </div>
                   ` : ''}
                   
@@ -944,13 +939,13 @@ Resources:
       Actions:
         - Type: authenticate-oidc
           AuthenticateOidcConfig:
-            AuthorizationEndpoint: !Ref OidcAuthorizationEndpoint
+            AuthorizationEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/authorize"
             ClientId: !Ref OktaClientId
             ClientSecret: !Ref OktaClientSecret
-            Issuer: !Ref OidcIssuer
-            TokenEndpoint: !Ref OidcTokenEndpoint
-            UserInfoEndpoint: !Ref OidcUserInfoEndpoint
-            SessionCookieName: AWSELBAuthSessionCookie
+            Issuer: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}"
+            TokenEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/token"
+            UserInfoEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/userinfo"
+            SessionCookieName: !Ref AlbSessionCookieName
             SessionTimeout: !Ref SessionTimeout
             Scope: !Ref OidcScopes
           Order: 1
@@ -969,13 +964,13 @@ Resources:
       Actions:
         - Type: authenticate-oidc
           AuthenticateOidcConfig:
-            AuthorizationEndpoint: !Ref OidcAuthorizationEndpoint
+            AuthorizationEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/authorize"
             ClientId: !Ref OktaClientId
             ClientSecret: !Ref OktaClientSecret
-            Issuer: !Ref OidcIssuer
-            TokenEndpoint: !Ref OidcTokenEndpoint
-            UserInfoEndpoint: !Ref OidcUserInfoEndpoint
-            SessionCookieName: AWSELBAuthSessionCookie
+            Issuer: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}"
+            TokenEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/token"
+            UserInfoEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/userinfo"
+            SessionCookieName: !Ref AlbSessionCookieName
             SessionTimeout: !Ref SessionTimeout
             Scope: !Ref OidcScopes
           Order: 1
@@ -994,13 +989,13 @@ Resources:
       Actions:
         - Type: authenticate-oidc
           AuthenticateOidcConfig:
-            AuthorizationEndpoint: !Ref OidcAuthorizationEndpoint
+            AuthorizationEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/authorize"
             ClientId: !Ref OktaClientId
             ClientSecret: !Ref OktaClientSecret
-            Issuer: !Ref OidcIssuer
-            TokenEndpoint: !Ref OidcTokenEndpoint
-            UserInfoEndpoint: !Ref OidcUserInfoEndpoint
-            SessionCookieName: AWSELBAuthSessionCookie
+            Issuer: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}"
+            TokenEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/token"
+            UserInfoEndpoint: !Sub "https://${OidcOktaDomain}/oauth2/${OidcOktaAuthServerId}/v1/userinfo"
+            SessionCookieName: !Ref AlbSessionCookieName
             SessionTimeout: !Ref SessionTimeout
             Scope: !Ref OidcExtendedScopes
           Order: 1
