@@ -22,5 +22,14 @@ Resources created include subdomain dns, ssl cert, alb, and route handling lambd
 * Handle HTTP to HTTPS redirect at ALB level
 * 404 handler
 
-# Screenshot
-<img width="841" height="919" alt="Preview Image" src="https://github.com/user-attachments/assets/b47af331-9bdc-4fe7-817b-0c258ad85630" />
+# Screenshot - Home
+<img width="842" height="1354" alt="Image" src="https://github.com/user-attachments/assets/ce2be4a4-5120-4977-b05f-eb74851a37bd" />
+
+# Screenshot - Profile
+<img width="942" height="1221" alt="Image" src="https://github.com/user-attachments/assets/c455cb4d-8959-4193-ac28-9c079081a52d" />
+
+# Screenshot - Admin
+<img width="942" height="1323" alt="Image" src="https://github.com/user-attachments/assets/205d324d-2716-44ef-9a99-b87965aa0c79" />
+
+# Screenshot - Reports
+<img width="922" height="1249" alt="Image" src="https://github.com/user-attachments/assets/b48e2fed-0cd2-406e-a7bf-66ca8b2177ca" />
