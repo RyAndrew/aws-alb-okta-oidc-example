@@ -38,16 +38,11 @@ Parameters:
     Description: "Name of the cookie used to store the oidc session"
     Default: "AWSELBAuthSessionCookie"
 
-  HostedZoneName:
-    Type: String
-    Description: "Route53 Hosted Zone Name (e.g., aws.example.com.)"
-    Default: "aws.mydomain.com." 
-
   RecordName:
     Type: String
     Description: "Domain for the ALB (e.g., alb.aws.example.com.)"
     Default: "alb.aws.mydomain.com" 
-    
+
   HostedZoneId:
     Type: String
     Description: "The ID of the Route53 hosted zone for your subdomain (e.g., Z03465402AW3N8S6IRRL3)"
@@ -118,7 +113,6 @@ Resources:
 
   PublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: AttachInternetGateway
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
@@ -305,7 +299,6 @@ Resources:
   # Lambda Functions
   LambdaPublicFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaLogGroupPublic
     Properties:
       FunctionName: public-lambda
       Runtime: nodejs18.x
@@ -399,7 +392,6 @@ Resources:
 
   LambdaAdminFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaLogGroupAdmin
     Properties:
       FunctionName: admin-lambda
       Runtime: nodejs18.x
@@ -519,7 +511,6 @@ Resources:
 
   LambdaReportFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaLogGroupReport
     Properties:
       FunctionName: report-lambda
       Runtime: nodejs18.x
@@ -663,7 +654,6 @@ Resources:
 
   LambdaProfileFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaLogGroupProfile
     Properties:
       FunctionName: profile-lambda
       Runtime: nodejs18.x
@@ -786,7 +776,6 @@ Resources:
 
   LambdaLogoutFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaLogGroupLogout
     Properties:
       FunctionName: logout-lambda
       Runtime: nodejs18.x
@@ -872,7 +861,6 @@ Resources:
   # Target Groups
   TargetGroupPublic:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    DependsOn: LambdaPublicPermission
     Properties:
       Name: tg-public
       TargetType: lambda
@@ -881,7 +869,6 @@ Resources:
 
   TargetGroupAdmin:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    DependsOn: LambdaAdminPermission
     Properties:
       Name: tg-admin
       TargetType: lambda
@@ -890,7 +877,6 @@ Resources:
 
   TargetGroupReport:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    DependsOn: LambdaReportPermission
     Properties:
       Name: tg-report
       TargetType: lambda
@@ -899,7 +885,6 @@ Resources:
 
   TargetGroupProfile:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    DependsOn: LambdaProfilePermission
     Properties:
       Name: tg-profile
       TargetType: lambda
@@ -908,7 +893,6 @@ Resources:
 
   TargetGroupLogout:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    DependsOn: LambdaLogoutPermission
     Properties:
       Name: tg-logout
       TargetType: lambda
@@ -1019,7 +1003,7 @@ Resources:
   Route53Record:
     Type: AWS::Route53::RecordSet
     Properties:
-      HostedZoneName: !Ref HostedZoneName
+      HostedZoneId: !Ref HostedZoneId
       Name: !Ref RecordName
       Type: A
       AliasTarget:
