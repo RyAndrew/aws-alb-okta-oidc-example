@@ -8,8 +8,10 @@ It is a simple demo of an aws alb with okta oidc authentication
 * Domains correctly configured in aws
 
 # Functionality
-* Redirect based login
+* Protected & Public Routes
+* Redirect Based Login
 * Displays ALB token header values
+* ALB & Okta Logout
 
 # Screenshot
 <img width="841" height="919" alt="Preview Image" src="https://github.com/user-attachments/assets/b47af331-9bdc-4fe7-817b-0c258ad85630" />
