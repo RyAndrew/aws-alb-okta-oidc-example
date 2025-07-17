@@ -1,6 +1,7 @@
 # aws-alb-okta-oidc-example
-This cloudformation template will create a domain, ssl cert, alb, and some lambdas
-It is a simple demo of an aws alb with okta oidc authentication
+This cloudformation template will create a domain, ssl cert, alb, and some lambdas.
+
+It is a simple demo of an AWS ALB with Okta OIDC Authentication.
 
 # Pre-Reqs
 * Okta Org (configured for domain auth.mydomain.com)
