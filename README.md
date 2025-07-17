@@ -4,15 +4,23 @@ This cloudformation template will create a domain, ssl cert, alb, and some lambd
 It is a simple demo of an AWS ALB with Okta OIDC Authentication.
 
 # Pre-Reqs
-* Okta Org (configured for domain auth.mydomain.com)
-* Custom Auth Server (or use /default)
-* Domains correctly configured in aws
+* Okta Org (configured with domain auth.mydomain.com in this example)
+* Okta Application created (with optional custom auth server)
+* Logout functionality requires trusted origin configuration
+* Domains correctly configured in aws route 53 zone
 
-# Functionality
+# Core Functionality
 * Protected & Public Routes
-* Redirect Based Login
+  * Authenticate-oidc configured per ListenerRule / path
+  * Different routes can request different scopes
+  * Different routes can use different OIDC configurations
+* Redirect Based Authentication Flow
 * Displays ALB token header values
-* ALB & Okta Logout
+* ALB (clear cookie) & Okta Logout
+  
+# Convenience Functionality
+* Handle HTTP to HTTPS redirect at ALB level
+* 404 handler
 
 # Screenshot
 <img width="841" height="919" alt="Preview Image" src="https://github.com/user-attachments/assets/b47af331-9bdc-4fe7-817b-0c258ad85630" />
