@@ -4,7 +4,7 @@ It is a simple demo of an aws alb with okta oidc authentication
 
 # Pre-Reqs
 * Okta Org (configured for domain auth.mydomain.com)
-* Custom Auth Server
+* Custom Auth Server (or use /default)
 * Domains correctly configured in aws
 
 # Functionality
