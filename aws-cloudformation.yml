@@ -1,0 +1,1066 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Enhanced ALB + Okta OIDC Authentication Demo - Complete example with multiple endpoints, security groups, and comprehensive OIDC features"
+
+Parameters:
+  HostedZoneName:
+    Type: String
+    Description: "Route53 Hosted Zone Name (e.g., aws.example.com.)"
+    Default: "aws.mydomain.com." 
+
+  RecordName:
+    Type: String
+    Description: "Domain for the ALB (e.g., alb.aws.example.com.)"
+    Default: "alb.aws.mydomain.com" 
+
+  OktaClientId:
+    Type: String
+    Description: "OIDC Client ID"
+    Default: "0oataz9r87sgKiSpn697" 
+
+  OktaClientSecret:
+    Type: String
+    NoEcho: true
+    Description: "OIDC Client Secret"
+    Default: "hh4DNQUebSQOkmyPTaZpNDHBitM3J5qFG2Aao-CrmqI7XIVD4EHhmBkNMlgjODPt"
+
+  OidcIssuer:
+    Type: String
+    Description: "OIDC Issuer URL"
+    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697"
+
+  OidcAuthorizationEndpoint:
+    Type: String
+    Description: "OIDC Authorization Endpoint URL"
+    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697/v1/authorize"
+
+  OidcTokenEndpoint:
+    Type: String
+    Description: "OIDC Token Endpoint URL"
+    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697/v1/token"
+
+  OidcUserInfoEndpoint:
+    Type: String
+    Description: "OIDC UserInfo Endpoint URL"
+    Default: "https://auth.mydomain.com/oauth2/ausakx45dmHwzI9D3697/v1/userinfo"
+
+  OidcScopes:
+    Type: String
+    Description: "OIDC Scopes"
+    Default: "openid profile email"
+
+  HostedZoneId:
+    Type: String
+    Description: "The ID of the Route53 hosted zone for your subdomain (e.g., Z03465402AW3N8S6IRRL3)"
+    Default: "Z03265102AV3N4S6IPRL3"
+
+  SessionTimeout:
+    Type: String
+    Description: "Session timeout in seconds (default 1 hour)"
+    Default: "3600"
+
+Resources:
+
+  # VPC and Subnets
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: alb-okta-vpc
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: alb-okta-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: alb-okta-subnet-2
+
+  # Internet Gateway and Attach
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: alb-okta-igw
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Route Table and Public Routes
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: alb-okta-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate Subnets with Route Table
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group for ALB
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB - allows HTTP and HTTPS traffic
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP from anywhere
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS from anywhere
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: alb-okta-sg
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaAlbOidcDemoExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaCloudWatchLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # CloudWatch Log Groups
+  LambdaLogGroupPublic:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/public-lambda
+      RetentionInDays: 7
+
+  LambdaLogGroupAdmin:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/admin-lambda
+      RetentionInDays: 7
+
+  LambdaLogGroupReport:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/report-lambda
+      RetentionInDays: 7
+
+  LambdaLogGroupProfile:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/profile-lambda
+      RetentionInDays: 7
+
+  LambdaLogGroupLogout:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/logout-lambda
+      RetentionInDays: 7
+
+  # ACM Certificate with DNS validation
+  ALBCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref RecordName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref RecordName
+          HostedZoneId: !Ref HostedZoneId
+
+  # Application Load Balancer
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: alb-oidc-demo
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Type: application
+      Tags:
+        - Key: Name
+          Value: alb-oidc-demo
+
+  # HTTP Listener for redirect
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+
+  # HTTPS Listener
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref ALBCertificate
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: 404
+            ContentType: text/html
+            MessageBody: |
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>404 - Not Found</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+                    h1 { color: #d32f2f; }
+                    a { color: #1976d2; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                  </style>
+                </head>
+                <body>
+                  <h1>404 - Page Not Found</h1>
+                  <p>The requested page does not exist.</p>
+                  <h3>Available endpoints:</h3>
+                  <ul>
+                    <li><a href="/">Home</a> - Public page</li>
+                    <li><a href="/admin">Admin Portal</a> - Requires authentication</li>
+                    <li><a href="/report">Reports</a> - Requires authentication</li>
+                    <li><a href="/profile">User Profile</a> - Requires authentication (with additional scopes)</li>
+                  </ul>
+                  <p><a href="/">Return to Home</a></p>
+                </body>
+              </html>
+
+  # Lambda Functions
+  LambdaPublicFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLogGroupPublic
+    Properties:
+      FunctionName: public-lambda
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          exports.handler = async function(event) {
+            console.log('Public endpoint accessed:', JSON.stringify(event));
+            
+            const html = `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>ALB OIDC Demo - Home</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+                    .header { background: #1976d2; color: white; padding: 20px; margin: -20px -20px 20px; }
+                    .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+                    .protected { border-left: 4px solid #ff9800; }
+                    .public { border-left: 4px solid #4caf50; }
+                    a { color: #1976d2; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                    .info { background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                  </style>
+                </head>
+                <body>
+                  <div class="header">
+                    <h1>ALB OIDC Authentication Demo</h1>
+                    <p>Demonstrating Okta OIDC authentication at the Application Load Balancer level</p>
+                  </div>
+                  
+                  <div class="info">
+                    <h3>How it works:</h3>
+                    <ul>
+                      <li>This page is publicly accessible - no authentication required</li>
+                      <li>Protected endpoints will redirect you to Okta for authentication</li>
+                      <li>After authentication, the ALB validates the OIDC tokens and forwards user information to the Lambda function</li>
+                      <li>The Lambda functions can access user claims through special headers added by the ALB</li>
+                    </ul>
+                  </div>
+                  
+                  <h2>Available Endpoints:</h2>
+                  
+                  <div class="endpoint public">
+                    <h3>&#x1F4C2; <a href="/">Home (Public)</a></h3>
+                    <p>You are here! This page requires no authentication.</p>
+                  </div>
+                  
+                  <div class="endpoint protected">
+                    <h3>&#x1F510; <a href="/admin">Admin Portal</a></h3>
+                    <p>Protected endpoint requiring OIDC authentication with basic 'openid' scope</p>
+                  </div>
+                  
+                  <div class="endpoint protected">
+                    <h3>&#x1F4CA; <a href="/report">Reports Page</a></h3>
+                    <p>Protected endpoint requiring OIDC authentication with basic 'openid' scope</p>
+                  </div>
+                  
+                  <div class="endpoint protected">
+                    <h3>&#x1F464; <a href="/profile">User Profile</a></h3>
+                    <p>Protected endpoint with extended scopes: 'openid profile email'</p>
+                  </div>
+                  
+                  <div class="endpoint public">
+                    <h3>&#x1F6AA; <a href="/logout">Logout</a></h3>
+                    <p>Clears the ALB session cookie and redirects to home</p>
+                  </div>
+                  
+                  <div class="info" style="margin-top: 30px;">
+                    <p><strong>Request Details:</strong></p>
+                    <pre>${JSON.stringify({
+                      timestamp: new Date().toISOString(),
+                      path: event.path,
+                      method: event.httpMethod,
+                      sourceIp: event.headers?.['x-forwarded-for'] || 'unknown',
+                      userAgent: event.headers?.['user-agent'] || 'unknown'
+                    }, null, 2)}</pre>
+                  </div>
+                </body>
+              </html>
+            `;
+            
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'text/html' },
+              body: html
+            };
+          };
+
+  LambdaAdminFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLogGroupAdmin
+    Properties:
+      FunctionName: admin-lambda
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          exports.handler = async function(event) {
+            console.log('Admin endpoint accessed:', JSON.stringify(event));
+            
+            const headers = event.headers || {};
+            const oidcData = {};
+            
+            // Extract OIDC claims from ALB headers
+            if (headers['x-amzn-oidc-accesstoken']) {
+              oidcData.hasAccessToken = true;
+              oidcData.accessTokenLength = headers['x-amzn-oidc-accesstoken'].length;
+            }
+            
+            if (headers['x-amzn-oidc-identity']) {
+              oidcData.identity = headers['x-amzn-oidc-identity'];
+            }
+            
+            // Parse the OIDC data JWT
+            if (headers['x-amzn-oidc-data']) {
+              try {
+                const encodedData = headers['x-amzn-oidc-data'];
+                const parts = encodedData.split('.');
+                if (parts.length === 3) {
+                  const payload = Buffer.from(parts[1], 'base64').toString('utf8');
+                  oidcData.claims = JSON.parse(payload);
+                }
+              } catch (e) {
+                oidcData.error = 'Failed to parse OIDC data: ' + e.message;
+              }
+            }
+            
+            const html = `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>Admin Portal - ALB OIDC Demo</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+                    .header { background: #d32f2f; color: white; padding: 20px; margin: -20px -20px 20px; }
+                    .section { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; }
+                    .user-info { background: #e8f5e9; padding: 15px; border-radius: 5px; }
+                    pre { background: #263238; color: #aed581; padding: 15px; border-radius: 5px; overflow-x: auto; }
+                    a { color: #1976d2; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                    .nav { margin-bottom: 20px; }
+                  </style>
+                </head>
+                <body>
+                  <div class="header">
+                    <h1>&#x1F510; Admin Portal</h1>
+                    <p>You have successfully authenticated via Okta OIDC!</p>
+                  </div>
+                  
+                  <div class="nav">
+                    <a href="/">&#x2190; Home</a> | 
+                    <a href="/report">Reports</a> | 
+                    <a href="/profile">Profile</a> | 
+                    <a href="/logout">Logout</a>
+                  </div>
+                  
+                  <div class="user-info">
+                    <h2>Authenticated User Information</h2>
+                    <p><strong>Identity:</strong> ${oidcData.identity || 'Not available'}</p>
+                    ${oidcData.claims ? `
+                      <p><strong>Subject:</strong> ${oidcData.claims.sub || 'Not available'}</p>
+                      <p><strong>Issued At:</strong> ${oidcData.claims.iat ? new Date(oidcData.claims.iat * 1000).toISOString() : 'Not available'}</p>
+                      <p><strong>Expires At:</strong> ${oidcData.claims.exp ? new Date(oidcData.claims.exp * 1000).toISOString() : 'Not available'}</p>
+                    ` : '<p>Unable to parse user claims</p>'}
+                  </div>
+                  
+                  <div class="section">
+                    <h3>OIDC Claims from ALB</h3>
+                    <pre>${JSON.stringify(oidcData, null, 2)}</pre>
+                  </div>
+                  
+                  <div class="section">
+                    <h3>ALB Authentication Headers</h3>
+                    <pre>${JSON.stringify(
+                      Object.keys(headers)
+                        .filter(h => h.startsWith('x-amzn-'))
+                        .reduce((obj, key) => {
+                          obj[key] = headers[key]; // redact tokens // key.includes('token') ? `[REDACTED - ${headers[key].length} chars]` : 
+                          return obj;
+                        }, {}),
+                      null, 2
+                    )}</pre>
+                  </div>
+                  
+                  <div class="section">
+                    <h3>Request Information</h3>
+                    <pre>${JSON.stringify({
+                      timestamp: new Date().toISOString(),
+                      path: event.path,
+                      method: event.httpMethod,
+                      sourceIp: headers['x-forwarded-for'] || 'unknown',
+                      protocol: headers['x-forwarded-proto'] || 'unknown',
+                      port: headers['x-forwarded-port'] || 'unknown'
+                    }, null, 2)}</pre>
+                  </div>
+                </body>
+              </html>
+            `;
+            
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'text/html' },
+              body: html
+            };
+          };
+
+  LambdaReportFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLogGroupReport
+    Properties:
+      FunctionName: report-lambda
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          exports.handler = async function(event) {
+            console.log('Report endpoint accessed:', JSON.stringify(event));
+            
+            const headers = event.headers || {};
+            let username = 'Unknown User';
+            
+            // Extract username from OIDC data
+            if (headers['x-amzn-oidc-data']) {
+              try {
+                const parts = headers['x-amzn-oidc-data'].split('.');
+                if (parts.length === 3) {
+                  const payload = Buffer.from(parts[1], 'base64').toString('utf8');
+                  const claims = JSON.parse(payload);
+                  username = claims.username || claims.sub || username;
+                }
+              } catch (e) {
+                console.error('Failed to parse OIDC data:', e);
+              }
+            }
+            
+            // Generate mock report data
+            const reportData = {
+              generatedAt: new Date().toISOString(),
+              generatedBy: username,
+              loginActivity: [
+                { date: '2024-01-15', logins: Math.floor(Math.random() * 100) + 50 },
+                { date: '2024-01-16', logins: Math.floor(Math.random() * 100) + 50 },
+                { date: '2024-01-17', logins: Math.floor(Math.random() * 100) + 50 },
+                { date: '2024-01-18', logins: Math.floor(Math.random() * 100) + 50 },
+                { date: '2024-01-19', logins: Math.floor(Math.random() * 100) + 50 }
+              ],
+              systemStatus: {
+                alb: 'Healthy',
+                authentication: 'Active',
+                sessions: Math.floor(Math.random() * 50) + 10
+              }
+            };
+            
+            const html = `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>Reports - ALB OIDC Demo</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+                    .header { background: #388e3c; color: white; padding: 20px; margin: -20px -20px 20px; }
+                    .nav { margin-bottom: 20px; }
+                    .report-section { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; }
+                    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+                    th { background: #e0e0e0; }
+                    .status-healthy { color: #388e3c; font-weight: bold; }
+                    .chart { background: white; padding: 20px; border-radius: 5px; margin: 15px 0; }
+                    a { color: #1976d2; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                  </style>
+                </head>
+                <body>
+                  <div class="header">
+                    <h1>&#x1F4CA; Reports Dashboard</h1>
+                    <p>Generated for: ${username}</p>
+                  </div>
+                  
+                  <div class="nav">
+                    <a href="/">&#x2190; Home</a> | 
+                    <a href="/admin">Admin Portal</a> | 
+                    <a href="/profile">Profile</a> | 
+                    <a href="/logout">Logout</a>
+                  </div>
+                  
+                  <div class="report-section">
+                    <h2>System Status Report</h2>
+                    <p><strong>Generated:</strong> ${reportData.generatedAt}</p>
+                    <table>
+                      <tr>
+                        <th>Component</th>
+                        <th>Status</th>
+                      </tr>
+                      <tr>
+                        <td>Application Load Balancer</td>
+                        <td class="status-healthy">${reportData.systemStatus.alb}</td>
+                      </tr>
+                      <tr>
+                        <td>OIDC Authentication</td>
+                        <td class="status-healthy">${reportData.systemStatus.authentication}</td>
+                      </tr>
+                      <tr>
+                        <td>Active Sessions</td>
+                        <td>${reportData.systemStatus.sessions}</td>
+                      </tr>
+                    </table>
+                  </div>
+                  
+                  <div class="report-section">
+                    <h2>Login Activity (Last 5 Days)</h2>
+                    <div class="chart">
+                      <table>
+                        <tr>
+                          <th>Date</th>
+                          <th>Number of Logins</th>
+                          <th>Visual</th>
+                        </tr>
+                        ${reportData.loginActivity.map(day => `
+                          <tr>
+                            <td>${day.date}</td>
+                            <td>${day.logins}</td>
+                            <td><div style="background: #1976d2; width: ${day.logins * 2}px; height: 20px;"></div></td>
+                          </tr>
+                        `).join('')}
+                      </table>
+                    </div>
+                  </div>
+                  
+                  <div class="report-section">
+                    <h2>Authentication Details</h2>
+                    <p>This report was generated using OIDC authentication data passed from the ALB.</p>
+                    <p>The ALB handles all authentication with Okta, validates tokens, and passes user information to Lambda functions via secure headers.</p>
+                  </div>
+                  
+                  <div style="text-align: center; margin-top: 30px; color: #666;">
+                    <p>This is a demo report. In a real application, this would contain actual business data.</p>
+                  </div>
+                </body>
+              </html>
+            `;
+            
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'text/html' },
+              body: html
+            };
+          };
+
+  LambdaProfileFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLogGroupProfile
+    Properties:
+      FunctionName: profile-lambda
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          exports.handler = async function(event) {
+            console.log('Profile endpoint accessed:', JSON.stringify(event));
+            
+            const headers = event.headers || {};
+            const profile = {
+              hasExtendedScopes: false,
+              requestedScopes: 'openid profile email'
+            };
+            
+            // Parse OIDC data
+            if (headers['x-amzn-oidc-data']) {
+              try {
+                const parts = headers['x-amzn-oidc-data'].split('.');
+                if (parts.length === 3) {
+                  const payload = Buffer.from(parts[1], 'base64').toString('utf8');
+                  const claims = JSON.parse(payload);
+                  profile.claims = claims;
+                  
+                  // Check if we got extended scopes
+                  if (claims.email || claims.name || claims.given_name || claims.family_name) {
+                    profile.hasExtendedScopes = true;
+                  }
+                }
+              } catch (e) {
+                profile.error = 'Failed to parse OIDC data: ' + e.message;
+              }
+            }
+            
+            const html = `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>User Profile - ALB OIDC Demo</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+                    .header { background: #7b1fa2; color: white; padding: 20px; margin: -20px -20px 20px; }
+                    .profile-card { background: #f5f5f5; padding: 30px; margin: 20px 0; border-radius: 10px; text-align: center; }
+                    .profile-icon { font-size: 72px; margin-bottom: 20px; }
+                    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px; }
+                    .info-box { background: white; padding: 20px; border-radius: 5px; }
+                    .scope-notice { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                    pre { background: #263238; color: #aed581; padding: 15px; border-radius: 5px; overflow-x: auto; }
+                    a { color: #1976d2; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                    .nav { margin-bottom: 20px; }
+                  </style>
+                </head>
+                <body>
+                  <div class="header">
+                    <h1>&#x1F464; User Profile</h1>
+                    <p>Extended OIDC Scopes: openid profile email</p>
+                  </div>
+                  
+                  <div class="nav">
+                    <a href="/">&#x2190; Home</a> | 
+                    <a href="/admin">Admin Portal</a> | 
+                    <a href="/report">Reports</a> | 
+                    <a href="/logout">Logout</a>
+                  </div>
+                  
+                  ${!profile.hasExtendedScopes ? `
+                    <div class="scope-notice">
+                      <h3>&#x26A0;&#xFE0F; Limited Profile Information</h3>
+                      <p>This endpoint requests extended scopes (profile, email) but they may not be configured in your Okta application.</p>
+                      <p>To see full profile information, ensure your Okta app includes these scopes.</p>
+                    </div>
+                  ` : ''}
+                  
+                  <div class="profile-card">
+                    <div class="profile-icon">&#x1F464;</div>
+                    <h2>${profile.claims?.name || 'User'}</h2>
+                    <p>${profile.claims?.email || 'Email not available'}</p>
+                  </div>
+                  
+                  <div class="info-grid">
+                    <div class="info-box">
+                      <h3>Basic Information</h3>
+                      <p><strong>Subject ID:</strong> ${profile.claims?.sub || 'Not available'}</p>
+                      <p><strong>Auth Time:</strong> ${profile.claims?.auth_time ? new Date(profile.claims.auth_time * 1000).toLocaleString() : 'Not available'}</p>
+                    </div>
+                    
+                    <div class="info-box">
+                      <h3>Extended Profile</h3>
+                      <p><strong>Full Name:</strong> ${profile.claims?.name || 'Not available'}</p>
+                      <p><strong>Given Name:</strong> ${profile.claims?.given_name || 'Not available'}</p>
+                      <p><strong>Family Name:</strong> ${profile.claims?.family_name || 'Not available'}</p>
+                      <p><strong>Email:</strong> ${profile.claims?.email || 'Not available'}</p>
+                      <p><strong>Email Verified:</strong> ${profile.claims?.email_verified !== undefined ? profile.claims.email_verified : 'Not available'}</p>
+                    </div>
+                  </div>
+                  
+                  <div style="margin-top: 30px;">
+                    <h3>All OIDC Claims</h3>
+                    <pre>${JSON.stringify(profile.claims || {}, null, 2)}</pre>
+                  </div>
+                  
+                  <div style="margin-top: 30px;">
+                    <h3>Requested vs Received Scopes</h3>
+                    <p><strong>Requested:</strong> ${profile.requestedScopes}</p>
+                    <p><strong>Extended Scopes Detected:</strong> ${profile.hasExtendedScopes ? 'Yes' : 'No'}</p>
+                  </div>
+                </body>
+              </html>
+            `;
+            
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'text/html' },
+              body: html
+            };
+          };
+
+  LambdaLogoutFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLogGroupLogout
+    Properties:
+      FunctionName: logout-lambda
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          exports.handler = async function(event) {
+            console.log('Logout endpoint accessed:', JSON.stringify(event));
+            
+            const html = `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <title>Logging Out - ALB OIDC Demo</title>
+                  <meta http-equiv="refresh" content="2;url=/">
+                  <style>
+                    body { font-family: Arial, sans-serif; max-width: 600px; margin: 100px auto; padding: 20px; text-align: center; }
+                    .message { background: #e3f2fd; padding: 30px; border-radius: 10px; }
+                    a { color: #1976d2; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                  </style>
+                </head>
+                <body>
+                  <div class="message">
+                    <h1>&#x1F6AA; Logging Out...</h1>
+                    <p>You have been successfully logged out.</p>
+                    <p>Redirecting to home page in 2 seconds...</p>
+                    <p><a href="/">Click here if you are not redirected</a></p>
+                  </div>
+                </body>
+              </html>
+            `;
+            
+            return {
+              statusCode: 302,
+              headers: { 
+                'Content-Type': 'text/html',
+                'Set-Cookie': 'AWSELBAuthSessionCookie-0=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=None; HttpOnly; Secure',
+                'Location': 'https://auth.mydomain.com/login/signout?fromURI=https%3A%2F%2Falb.aws.mydomain.com%2F'
+              },
+              body: html
+            };
+          };
+
+  # Lambda Permissions
+  LambdaPublicPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaPublicFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+
+  LambdaAdminPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaAdminFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+
+  LambdaReportPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaReportFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+
+  LambdaProfilePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaProfileFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+
+  LambdaLogoutPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaLogoutFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+
+  # Target Groups
+  TargetGroupPublic:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaPublicPermission
+    Properties:
+      Name: tg-public
+      TargetType: lambda
+      Targets:
+        - Id: !GetAtt LambdaPublicFunction.Arn
+
+  TargetGroupAdmin:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaAdminPermission
+    Properties:
+      Name: tg-admin
+      TargetType: lambda
+      Targets:
+        - Id: !GetAtt LambdaAdminFunction.Arn
+
+  TargetGroupReport:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaReportPermission
+    Properties:
+      Name: tg-report
+      TargetType: lambda
+      Targets:
+        - Id: !GetAtt LambdaReportFunction.Arn
+
+  TargetGroupProfile:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaProfilePermission
+    Properties:
+      Name: tg-profile
+      TargetType: lambda
+      Targets:
+        - Id: !GetAtt LambdaProfileFunction.Arn
+
+  TargetGroupLogout:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaLogoutPermission
+    Properties:
+      Name: tg-logout
+      TargetType: lambda
+      Targets:
+        - Id: !GetAtt LambdaLogoutFunction.Arn
+
+  # Listener Rules
+  ListenerRulePublic:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values: ["/"]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupPublic
+
+  ListenerRuleAdmin:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values: ["/admin"]
+      Actions:
+        - Type: authenticate-oidc
+          AuthenticateOidcConfig:
+            AuthorizationEndpoint: !Ref OidcAuthorizationEndpoint
+            ClientId: !Ref OktaClientId
+            ClientSecret: !Ref OktaClientSecret
+            Issuer: !Ref OidcIssuer
+            TokenEndpoint: !Ref OidcTokenEndpoint
+            UserInfoEndpoint: !Ref OidcUserInfoEndpoint
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: !Ref SessionTimeout
+            Scope: !Ref OidcScopes
+          Order: 1
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupAdmin
+          Order: 2
+
+  ListenerRuleReport:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 30
+      Conditions:
+        - Field: path-pattern
+          Values: ["/report"]
+      Actions:
+        - Type: authenticate-oidc
+          AuthenticateOidcConfig:
+            AuthorizationEndpoint: !Ref OidcAuthorizationEndpoint
+            ClientId: !Ref OktaClientId
+            ClientSecret: !Ref OktaClientSecret
+            Issuer: !Ref OidcIssuer
+            TokenEndpoint: !Ref OidcTokenEndpoint
+            UserInfoEndpoint: !Ref OidcUserInfoEndpoint
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: !Ref SessionTimeout
+            Scope: openid
+          Order: 1
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupReport
+          Order: 2
+
+  ListenerRuleProfile:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 40
+      Conditions:
+        - Field: path-pattern
+          Values: ["/profile"]
+      Actions:
+        - Type: authenticate-oidc
+          AuthenticateOidcConfig:
+            AuthorizationEndpoint: !Ref OidcAuthorizationEndpoint
+            ClientId: !Ref OktaClientId
+            ClientSecret: !Ref OktaClientSecret
+            Issuer: !Ref OidcIssuer
+            TokenEndpoint: !Ref OidcTokenEndpoint
+            UserInfoEndpoint: !Ref OidcUserInfoEndpoint
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: !Ref SessionTimeout
+            Scope: "openid profile email"  # Extended scopes
+          Order: 1
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupProfile
+          Order: 2
+
+  ListenerRuleLogout:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 50
+      Conditions:
+        - Field: path-pattern
+          Values: ["/logout"]
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupLogout
+
+  # Route53 Record
+  Route53Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Ref RecordName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+
+Outputs:
+  ALBDNSName:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ALB.DNSName
+    
+  ALBUrl:
+    Description: URL of the Application Load Balancer (via Route53)
+    Value: !Sub "https://${RecordName}"
+    
+  PublicEndpoint:
+    Description: Public home page (no authentication required)
+    Value: !Sub "https://${RecordName}/"
+    
+  AdminEndpoint:
+    Description: Admin portal (requires authentication with openid scope)
+    Value: !Sub "https://${RecordName}/admin"
+    
+  ReportEndpoint:
+    Description: Reports page (requires authentication with openid scope)
+    Value: !Sub "https://${RecordName}/report"
+    
+  ProfileEndpoint:
+    Description: User profile (requires authentication with extended scopes)
+    Value: !Sub "https://${RecordName}/profile"
+    
+  LogoutEndpoint:
+    Description: Logout endpoint (clears session cookie)
+    Value: !Sub "https://${RecordName}/logout"
+    
+  Instructions:
+    Description: How to test the OIDC authentication
+    Value: |
+      1. Visit the public endpoint - no authentication required
+      2. Click on any protected endpoint (/admin, /report, /profile)
+      3. You'll be redirected to Okta for authentication
+      4. After successful login, you'll see the user data passed by the ALB
+      5. The /profile endpoint demonstrates extended OIDC scopes
+      6. Use /logout to clear the session cookie
