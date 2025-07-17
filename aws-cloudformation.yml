@@ -46,6 +46,11 @@ Parameters:
   OidcScopes:
     Type: String
     Description: "OIDC Scopes"
+    Default: "openid"
+
+  OidcExtendedScopes:
+    Type: String
+    Description: "OIDC Scopes"
     Default: "openid profile email"
 
   HostedZoneId:
@@ -972,7 +977,7 @@ Resources:
             UserInfoEndpoint: !Ref OidcUserInfoEndpoint
             SessionCookieName: AWSELBAuthSessionCookie
             SessionTimeout: !Ref SessionTimeout
-            Scope: openid
+            Scope: !Ref OidcScopes
           Order: 1
         - Type: forward
           TargetGroupArn: !Ref TargetGroupReport
@@ -997,7 +1002,7 @@ Resources:
             UserInfoEndpoint: !Ref OidcUserInfoEndpoint
             SessionCookieName: AWSELBAuthSessionCookie
             SessionTimeout: !Ref SessionTimeout
-            Scope: "openid profile email"  # Extended scopes
+            Scope: !Ref OidcExtendedScopes
           Order: 1
         - Type: forward
           TargetGroupArn: !Ref TargetGroupProfile
