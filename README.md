@@ -28,6 +28,19 @@ This similar to the BFF pattern per [OAuth 2.0 for Browser-Based Applications](h
 * Handle HTTP to HTTPS redirect at ALB level
 * 404 handler
 
+# Cloudformation Required Parameters
+| Name  | Default / Example | Description |
+| ------------- | ------------- | ------------- |
+| OktaClientId  | 0oataz9r87sgKiSpn697 | OIDC Client ID |
+| OktaClientSecret  | hh4DNQUebSQOkmyPTaZpNDHBitM3J5qFG2Aao-CrmqI7XIVD4EHhmBkNMlgjODPt | OIDC Client Secret |
+| OidcOktaDomain  | auth.mydomain.com | Your Okta domain or custom domain e.g. dev-23503294.okta.com |
+| OidcOktaAuthServerId  | 0oataz9r87sgKiSpn697 | ID Value for Okta Auth Server. If you are using a custom authorization server use the identifier e.g. 'ausakx45dmHwzI9D3697', otherwise use 'default' |
+| RecordName  | alb.aws.mydomain.com | Domain for the ALB |
+| HostedZoneId  | Z03265102AV3N4S6IPRL3 | The ID of the Route53 hosted zone for your subdomain |
+
+# AWS Services
+<img width="1242" height="1582" alt="Image" src="https://github.com/user-attachments/assets/8991e67d-d2cf-4572-b513-4a8f2717d201" />
+
 # Screenshot - Home
 <img width="842" height="1354" alt="Image" src="https://github.com/user-attachments/assets/ce2be4a4-5120-4977-b05f-eb74851a37bd" />
 
