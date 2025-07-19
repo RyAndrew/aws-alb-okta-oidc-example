@@ -3,8 +3,6 @@ This cloudformation template will create a full stack example of OIDC Authentica
 
 Resources created include alb, listener rules with authenticate-oidc, lambdas, dns, ssl cert, vpc, subnets, gateways, security groups and of course iam roles.
 
-This similar to the BFF pattern per [OAuth 2.0 for Browser-Based Applications](https://www.ietf.org/archive/id/draft-ietf-oauth-browser-based-apps-25.html) & https://auth0.com/blog/the-backend-for-frontend-pattern-bff/
-
 # AWS Docs
 * https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-authenticate-users.html#configure-user-authentication
 * https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_AuthenticateOidcActionConfig.html
