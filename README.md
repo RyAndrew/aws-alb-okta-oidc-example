@@ -22,6 +22,9 @@ Resources created include alb, listener rules with authenticate-oidc, lambdas, d
 * Displays ALB token header values
 * ALB (clear cookie) & Okta Logout
   
+# Logout Functionality NOTICE
+* Due to the fact that you cannot easily use cloudformation parameter values within inlined lambdas - the location header redirect value must be updated to reference your okta domain
+  
 # Convenience Functionality
 * Handle HTTP to HTTPS redirect at ALB level
 * 404 handler
